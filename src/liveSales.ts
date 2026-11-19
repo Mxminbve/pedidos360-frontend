@@ -5,6 +5,9 @@ export const LIVE_SALES_INTERVAL_MS = 3000
 
 export type PollResult<T> = { data: T; at: Date } | { error: unknown; at: Date }
 
+/** 401/403: a retry cannot fix it (polling stops). Anything else (502, timeouts) is transient. */
+export const isFatal = (error: unknown) => error instanceof ApiError && (error.status === 401 || error.status === 403)
+
 /**
  * Queries immediately and then every `intervalMs` after the previous request finished (requests never
  * overlap). Stops when the returned function is called (view closed) or on 401/403, which a retry cannot fix.
@@ -19,7 +22,7 @@ export function startPolling<T>(load: () => Promise<T>, onResult: (result: PollR
       const data = await load()
       if (!stopped) onResult({ data, at: new Date() })
     } catch (error) {
-      fatal = error instanceof ApiError && (error.status === 401 || error.status === 403)
+      fatal = isFatal(error)
       if (!stopped) onResult({ error, at: new Date() })
     }
     if (!stopped && !fatal) timer = setTimeout(tick, intervalMs)
@@ -28,7 +31,7 @@ export function startPolling<T>(load: () => Promise<T>, onResult: (result: PollR
   return () => { stopped = true; if (timer !== undefined) clearTimeout(timer) }
 }
 
-export const REASONS: Record<string, string> = { ALTO_VALOR: 'Alto valor', MUCHAS_LINEAS: 'Más de 10 líneas' }
+export const REASONS: Record<string, string> = { ALTO_VALOR: 'Alto valor', MUCHAS_LINEAS: 'Más de diez líneas' }
 
 /** Day totals per currency (amounts in different currencies are never added together). */
 export function totalsByCurrency(products: LiveProduct[]) {

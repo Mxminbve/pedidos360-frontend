@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Acquisition, AuthClient } from './auth'
 import { ApiError, type Identity, type Order, type createApi } from './api'
+import { Loading, PageHead, Problem } from './ui'
 
 export function SessionPage({ auth, api }: { auth: AuthClient; api: ReturnType<typeof createApi> }) {
   const [identity, setIdentity] = useState<Identity>()
@@ -37,32 +38,37 @@ export function SessionPage({ auth, api }: { auth: AuthClient; api: ReturnType<t
       else setError(reason instanceof Error ? reason.message : 'No fue posible verificar el acceso.')
     } finally { setBusy(false) }
   }
-  return <section className="page page-orders">
-    <div className="section-title"><div className="section-heading">
-      <p className="eyebrow"><span>04</span> IDENTIDAD Y ACCESO</p>
-      <h1>Mi sesión</h1><p className="section-lead">Identidad y permisos comprobados por la API.</p>
-    </div></div>
-    {error && <p role="alert" className="error">{error}</p>}
-    {status && <p role="status" className="config-status">{status}</p>}
-    {!identity && !error && <p role="status" className="loading-state">Consultando sesión…</p>}
-    {identity && <article className="order">
-      <div className="order-header"><div><small className="order-code">{auth.mode === 'entra' ? 'MICROSOFT ENTRA' : 'DEMOSTRACIÓN LOCAL'}</small>
-        <h2>{identity.name ?? auth.user()}</h2><p>{identity.username}</p></div>
-        <span className="badge badge-success">{identity.roles.join(' · ') || 'Sin rol asignado'}</span></div>
-      <div className="order-body"><dl>
-        <dt>Permisos de la API</dt><dd>{identity.scopes.join(' · ')}</dd>
-        <dt>Tenant</dt><dd>{identity.tenantId}</dd>
-        <dt>Identidad del propietario</dt><dd>{identity.subjectId}</dd>
-        <dt>Subject del token</dt><dd>{identity.tokenSubject}</dd>
-        <dt>API destinataria (audience)</dt><dd>{identity.audience.join(', ')}</dd>
-        <dt>Cliente autorizado</dt><dd>{identity.clientId}</dd>
-        <dt>Emisor</dt><dd>{identity.issuer}</dd>
-        <dt>Versión de token</dt><dd>{identity.tokenVersion}</dd>
-        <dt>Emitido</dt><dd>{identity.issuedAt ? new Date(identity.issuedAt).toLocaleString('es-CL') : 'No informado'}</dd>
-        <dt>Válido hasta</dt><dd>{new Date(identity.expiresAt).toLocaleString('es-CL')}</dd>
-        {acquisition && <><dt>Última adquisición</dt><dd>{acquisition.requestedRefresh ? 'Renovación solicitada' : 'Adquisición silenciosa'} · {acquisition.fromCache ? 'desde caché MSAL' : 'desde Microsoft'}</dd></>}
-      </dl></div>
-      <div className="hero-actions">
+  const rows: [string, string, boolean?][] = identity ? [
+    ['Permisos de la API', identity.scopes.join(' · ')],
+    ['Tenant', identity.tenantId, true],
+    ['Identidad del propietario', identity.subjectId, true],
+    ['Subject del token', identity.tokenSubject ?? 'No informado', true],
+    ['API destinataria (audience)', identity.audience.join(', '), true],
+    ['Cliente autorizado', identity.clientId, true],
+    ['Emisor', identity.issuer, true],
+    ['Versión de token', identity.tokenVersion, true],
+    ['Emitido', identity.issuedAt ? new Date(identity.issuedAt).toLocaleString('es-CL') : 'No informado', true],
+    ['Válido hasta', new Date(identity.expiresAt).toLocaleString('es-CL'), true],
+  ] : []
+  return <section className="page">
+    <PageHead title="Mi sesión" lead="Identidad y permisos que la API validó en tu token." />
+    <Problem message={error} />
+    {status && <p role="status" className="notice notice-info">{status}</p>}
+    {!identity && !error && <Loading>Consultando sesión…</Loading>}
+    {identity && <article className="sheet session">
+      <header className="sheet-head">
+        <div>
+          <p className="meta">{auth.mode === 'entra' ? 'Microsoft Entra ID' : 'Demostración local'}</p>
+          <h2>{identity.name ?? auth.user()}</h2>
+          {identity.username && <p className="sub">{identity.username}</p>}
+        </div>
+        <span className="tag tag-ok">{identity.roles.join(' · ') || 'Sin rol asignado'}</span>
+      </header>
+      <dl className="facts">
+        {rows.map(([label, value, mono]) => <div key={label}><dt>{label}</dt><dd className={mono ? 'mono' : undefined}>{value}</dd></div>)}
+        {acquisition && <div><dt>Última adquisición</dt><dd>{acquisition.requestedRefresh ? 'Renovación solicitada' : 'Adquisición silenciosa'} · {acquisition.fromCache ? 'desde caché MSAL' : 'desde Microsoft'}</dd></div>}
+      </dl>
+      <div className="actions">
         {auth.mode === 'entra' && <button className="button button-primary" disabled={busy} onClick={refresh}>Renovar sesión</button>}
         <button className="button" disabled={busy} onClick={checkAdmin}>Comprobar acceso Admin</button>
         {identity.roles.includes('Admin') && <Link className="button" to="/administracion">Pedidos del tenant</Link>}

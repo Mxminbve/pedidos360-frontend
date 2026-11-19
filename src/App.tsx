@@ -19,6 +19,8 @@ import type { AuthClient } from "./auth";
 import { createApi, type Order, type Product } from "./api";
 import { SessionPage } from "./SessionPage";
 import { LiveSalesPage } from "./LiveSalesPage";
+import { dateTime, money, shortId, units } from "./format";
+import { BrandMark, Empty, Loading, PageHead, Problem } from "./ui";
 import "./style.css";
 
 type Api = ReturnType<typeof createApi>;
@@ -26,8 +28,6 @@ const ApiContext = createContext<Api>(async () => {
   throw new Error("API no inicializada");
 });
 const Session = createContext<string | null>(null);
-const money = (value: number, currency = "CLP") =>
-  new Intl.NumberFormat("es-CL", { style: "currency", currency }).format(value);
 const errorText = (error: unknown) =>
   error instanceof Error
     ? error.message
@@ -41,6 +41,7 @@ function useLoad<T>(path: string) {
   const api = useContext(ApiContext);
   const [data, setData] = useState<T>();
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
     api<T>(path)
@@ -53,213 +54,136 @@ function useLoad<T>(path: string) {
     return () => {
       active = false;
     };
-  }, [api, path]);
-  return { data, error };
-}
-
-function ErrorMessage({ message }: { message: string }) {
-  return message ? (
-    <p role="alert" className="error">
-      <span className="error-mark" aria-hidden="true">
-        !
-      </span>
-      <span>{message}</span>
-    </p>
-  ) : null;
+  }, [api, path, attempt]);
+  const retry = () => {
+    setError("");
+    setAttempt((value) => value + 1);
+  };
+  return { data, error, retry };
 }
 
 function Catalog() {
-  const { data: products, error } = useLoad<Product[]>("/productos");
+  const { data: products, error, retry } = useLoad<Product[]>("/productos");
   return (
-    <section className="page page-catalog">
-      <div className="section-title">
-        <div className="section-heading">
-          <p className="eyebrow">
-            <span>01</span> ELIGE A TU RITMO
-          </p>
-          <h1>Catálogo</h1>
-          <p className="section-lead">
-            Una selección simple, presentada con todo lo necesario para decidir
-            sin ruido.
-          </p>
-        </div>
-        <Link className="button button-primary" to="/nuevo">
-          <span>Crear pedido</span>
-          <span className="button-arrow" aria-hidden="true">
-            ↗
-          </span>
-        </Link>
-      </div>
-
-      <div className="section-rule">
-        <p className="muted">
-          Productos disponibles para registrar tu solicitud. El stock es
-          referencial y no implica una reserva.
-        </p>
-        <span className="rule-label">PEDIDOS360 / CATÁLOGO</span>
-      </div>
-
-      <ErrorMessage message={error} />
-      {!products && !error && (
-        <p role="status" className="loading-state">
-          <span className="loading-dot" />
-          Cargando productos…
-        </p>
+    <section className="page">
+      <PageHead
+        title="Catálogo"
+        lead="Precios de referencia. El stock es informativo: registrar un pedido no lo reserva."
+        action={<Link className="button button-primary" to="/nuevo">Nuevo pedido</Link>}
+      />
+      <Problem message={error} onRetry={retry} />
+      {!products && !error && <Loading>Cargando productos…</Loading>}
+      {products?.length === 0 && <Empty title="El catálogo no tiene productos publicados." />}
+      {!!products?.length && (
+        <table className="ledger ledger-catalog">
+          <thead>
+            <tr>
+              <th scope="col">Producto</th>
+              <th scope="col">Estado</th>
+              <th scope="col" className="num">Stock</th>
+              <th scope="col" className="num">Precio</th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.map((product) => (
+              <tr key={product.id}>
+                <th scope="row" className="cell-title">
+                  {product.nombre}
+                  <span className="sub">{product.descripcion}</span>
+                </th>
+                <td data-label="Estado">
+                  <span className={"tag " + (product.disponible ? "tag-ok" : "tag-off")}>
+                    {product.disponible ? "Disponible" : "No disponible"}
+                  </span>
+                </td>
+                <td className="num" data-label="Stock">{units(product.stock)} u.</td>
+                <td className="num amount" data-label="Precio">{money(product.precio, product.moneda)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
-
-      <div className="product-grid">
-        {products?.map((product, index) => (
-          <article className="product" key={product.id}>
-            <div className={"product-art art-" + index}>
-              <span className="art-grid" aria-hidden="true" />
-              <span className="art-orbit" aria-hidden="true" />
-              <span className="art-symbol" aria-hidden="true">
-                {index === 0 ? "☕" : "◡"}
-              </span>
-              <div className="art-caption">
-                <small>PEDIDOS360 / SELECCIÓN</small>
-                <span aria-hidden="true">P360</span>
-              </div>
-            </div>
-
-            <div className="product-copy">
-              <div className="product-topline">
-                <span className="product-code">PRODUCTO / PEDIDOS360</span>
-                <span
-                  className={
-                    "badge " +
-                    (product.disponible ? "badge-success" : "badge-muted")
-                  }
-                >
-                  <i aria-hidden="true" />
-                  {product.disponible ? "Disponible" : "No disponible"}
-                </span>
-              </div>
-
-              <h2>{product.nombre}</h2>
-              <p>{product.descripcion}</p>
-
-              <div className="product-meta">
-                <div>
-                  <small>Precio referencial</small>
-                  <strong className="price">
-                    {money(product.precio, product.moneda)}
-                  </strong>
-                </div>
-                <div className="stock">
-                  <small>Stock</small>
-                  <strong>{product.stock}</strong>
-                  <span className="muted">unidades</span>
-                </div>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
     </section>
   );
 }
 
-function Orders({ administration = false }: { administration?: boolean }) {
-  const { data: orders, error } = useLoad<Order[]>(administration ? "/admin/pedidos" : "/pedidos");
+const STATUS: Record<string, string> = { REGISTERED: "Registrado", REGISTRADO: "Registrado" };
+
+function Receipt({ order }: { order: Order }) {
   return (
-    <section className="page page-orders">
-      <div className="section-title">
-        <div className="section-heading">
-          <p className="eyebrow">
-            <span>02</span> TODO EN UN LUGAR
-          </p>
-          <h1>{administration ? "Pedidos del tenant" : "Mis pedidos"}</h1>
-          <p className="section-lead">
-            {administration ? "Consulta administrativa autorizada por tu rol y permisos." : "Tu historial, ordenado para que cada solicitud se entienda de un vistazo."}
-          </p>
-        </div>
-        <Link className="button button-primary" to="/nuevo">
-          <span>Nuevo pedido</span>
-          <span className="button-arrow" aria-hidden="true">
-            ＋
-          </span>
-        </Link>
-      </div>
+    <article className="receipt" aria-labelledby={"pedido-" + order.id}>
+      <header className="receipt-head">
+        <h2 id={"pedido-" + order.id}>
+          Pedido <span className="mono">{shortId(order.id)}</span>
+        </h2>
+        <span className="tag tag-ok">{STATUS[order.estado] ?? order.estado}</span>
+        <p className="receipt-date mono">{dateTime(order.fechaCreacion)}</p>
+      </header>
+      <table className="ledger ledger-receipt">
+        <thead>
+          <tr>
+            <th scope="col">Producto</th>
+            <th scope="col" className="num">Cant.</th>
+            <th scope="col" className="num">Precio</th>
+            <th scope="col" className="num">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {order.items.map((item) => (
+            <tr key={item.productoId}>
+              <th scope="row" className="cell-title">{item.nombre}</th>
+              <td className="num mono">{item.cantidad}</td>
+              <td className="num amount">{money(item.precioUnitario, order.moneda)}</td>
+              <td className="num amount">{money(item.subtotal, order.moneda)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colSpan={3}>Total {order.moneda}</th>
+            <td className="num amount total">{money(order.total, order.moneda)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </article>
+  );
+}
 
-      <ErrorMessage message={error} />
-      {!orders && !error && (
-        <p role="status" className="loading-state">
-          <span className="loading-dot" />
-          Cargando pedidos…
-        </p>
+function Orders({ administration = false }: { administration?: boolean }) {
+  const { data: orders, error, retry } = useLoad<Order[]>(administration ? "/admin/pedidos" : "/pedidos");
+  return (
+    <section className="page">
+      <PageHead
+        title={administration ? "Pedidos del tenant" : "Mis pedidos"}
+        lead={administration
+          ? "Todos los pedidos del tenant, visibles para el rol Admin."
+          : "Solicitudes registradas con tu cuenta. Un pedido no incluye pago ni reserva de stock."}
+        action={<Link className="button button-primary" to="/nuevo">Nuevo pedido</Link>}
+      />
+      <Problem message={error} onRetry={retry} />
+      {!orders && !error && <Loading>Cargando pedidos…</Loading>}
+      {orders?.length === 0 && (administration
+        ? <Empty title="No hay pedidos registrados en este tenant." />
+        : <Empty title="Aún no registras pedidos."
+            action={<Link className="button button-primary" to="/nuevo">Registrar el primero</Link>}>
+            Elige productos y cantidades; el pedido queda aquí con su comprobante.
+          </Empty>)}
+      {!!orders?.length && (
+        <>
+          <p className="count meta">{orders.length} {orders.length === 1 ? "pedido" : "pedidos"}</p>
+          <ol className="receipts">
+            {orders.map((order) => (
+              <li key={order.id}><Receipt order={order} /></li>
+            ))}
+          </ol>
+        </>
       )}
-
-      {administration && orders?.length === 0 && <p className="empty">No hay pedidos registrados en este tenant.</p>}
-      {!administration && orders?.length === 0 && (
-        <div className="empty">
-          <div className="empty-visual" aria-hidden="true">
-            <span>+</span>
-          </div>
-          <div>
-            <p className="eyebrow">AÚN NO HAY MOVIMIENTO</p>
-            <h2>Tu primer pedido empieza aquí</h2>
-            <p>Explora el catálogo y registra una solicitud.</p>
-            <Link to="/catalogo">
-              Ver catálogo <span aria-hidden="true">→</span>
-            </Link>
-          </div>
-        </div>
-      )}
-
-      <div className="order-list">
-        {orders?.map((order) => (
-          <article className="order" key={order.id}>
-            <div className="order-accent" aria-hidden="true" />
-
-            <div className="order-header">
-              <div>
-                <small className="order-code">
-                  PEDIDO / {order.id.slice(0, 8).toUpperCase()}
-                </small>
-                <h2>{new Date(order.fechaCreacion).toLocaleString("es-CL")}</h2>
-              </div>
-              <span className="badge badge-success">
-                <i aria-hidden="true" />
-                Registrado
-              </span>
-            </div>
-
-            <div className="order-body">
-              <p className="order-label">Detalle de la solicitud</p>
-              <ul>
-                {order.items.map((item) => (
-                  <li key={item.productoId}>
-                    <span>
-                      <em>{item.cantidad}×</em>
-                      {item.nombre}
-                    </span>
-                    <strong>{money(item.subtotal, order.moneda)}</strong>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="order-total">
-              <span>
-                <small>Total registrado</small>
-                <span>Valor confirmado al crear la solicitud</span>
-              </span>
-              <strong>{money(order.total, order.moneda)}</strong>
-            </div>
-
-            <small className="order-disclaimer">
-              Solicitud registrada. No incluye pago ni reserva de existencias.
-            </small>
-          </article>
-        ))}
-      </div>
     </section>
   );
 }
 
 function CreateOrder() {
-  const { data: products, error } = useLoad<Product[]>("/productos");
+  const { data: products, error, retry } = useLoad<Product[]>("/productos");
   const api = useContext(ApiContext),
     navigate = useNavigate();
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -291,107 +215,91 @@ function CreateOrder() {
   }
 
   return (
-    <section className="page page-create">
-      <div className="create-intro">
-        <div>
-          <p className="eyebrow">
-            <span>03</span> UN PASO MÁS
-          </p>
-          <h1>Crear pedido</h1>
-          <p className="section-lead">
-            Define las cantidades y revisa el estimado antes de registrar tu
-            solicitud.
-          </p>
-        </div>
-        <div className="create-seal" aria-hidden="true">
-          <span>P360</span>
-          <small>SOLICITUD</small>
-        </div>
-      </div>
+    <section className="page">
+      <PageHead
+        title="Nuevo pedido"
+        lead="Indica la cantidad de cada producto. El total se confirma al registrar el pedido."
+      />
+      <Problem message={error} onRetry={retry} />
+      <Problem message={failure} />
+      {!products && !error && <Loading>Cargando catálogo…</Loading>}
 
-      <ErrorMessage message={error || failure} />
-      {!products && !error && (
-        <p role="status" className="loading-state">
-          <span className="loading-dot" />
-          Cargando catálogo…
-        </p>
+      {products && (
+        <form onSubmit={submit} className="sheet order-form">
+          <table className="ledger ledger-form">
+            <thead>
+              <tr>
+                <th scope="col">Producto</th>
+                <th scope="col" className="num">Precio</th>
+                <th scope="col" className="num">Cantidad</th>
+                <th scope="col" className="num">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((product) => {
+                const quantity = quantities[product.id] ?? 0;
+                return (
+                  <tr key={product.id} className={quantity > 0 ? "is-selected" : undefined}>
+                    <th scope="row" className="cell-title">
+                      {product.nombre}
+                      {!product.disponible && <span className="tag tag-off">No disponible</span>}
+                    </th>
+                    <td className="num amount" data-label="Precio">{money(product.precio, product.moneda)}</td>
+                    <td className="num" data-label="Cantidad">
+                      <input
+                        aria-label={"Cantidad de " + product.nombre}
+                        type="number"
+                        min="0"
+                        max="1000"
+                        step="1"
+                        disabled={!product.disponible || pending}
+                        value={quantity}
+                        onChange={(event) =>
+                          setQuantities({
+                            ...quantities,
+                            [product.id]: Math.max(0, Number(event.target.value)),
+                          })
+                        }
+                      />
+                    </td>
+                    <td className="num amount" data-label="Subtotal">
+                      {quantity > 0 ? money(product.precio * quantity, product.moneda) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row" colSpan={3}>Total estimado</th>
+                <td className="num amount total">
+                  {money(selected.reduce((sum, p) => sum + p.precio * quantities[p.id], 0))}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div className="form-foot">
+            <p className="hint">Registrar un pedido no descuenta stock ni confirma una compra.</p>
+            <button
+              className="button button-primary"
+              disabled={pending || !products || !selected.length}
+            >
+              {pending ? "Registrando…" : "Registrar pedido"}
+            </button>
+          </div>
+        </form>
       )}
-
-      <form onSubmit={submit} className="create-form">
-        <div className="form-heading">
-          <div>
-            <small>PEDIDOS360 / NUEVA SOLICITUD</small>
-            <h2>Selecciona tus productos</h2>
-          </div>
-          <span className="form-step">01 / 01</span>
-        </div>
-
-        <div className="quantity-list">
-          {products?.map((product) => (
-            <label className="quantity-row" key={product.id}>
-              <span className="quantity-product">
-                <span className="quantity-mark" aria-hidden="true" />
-                <span>
-                  <strong>{product.nombre}</strong>
-                  <small>
-                    {money(product.precio, product.moneda)} por unidad
-                  </small>
-                </span>
-              </span>
-
-              <span className="quantity-control">
-                <small>CANTIDAD</small>
-                <input
-                  aria-label={"Cantidad de " + product.nombre}
-                  type="number"
-                  min="0"
-                  max="1000"
-                  step="1"
-                  disabled={!product.disponible || pending}
-                  value={quantities[product.id] ?? 0}
-                  onChange={(event) =>
-                    setQuantities({
-                      ...quantities,
-                      [product.id]: Math.max(0, Number(event.target.value)),
-                    })
-                  }
-                />
-              </span>
-            </label>
-          ))}
-        </div>
-
-        <div className="form-summary">
-          <div>
-            <small>Total estimado</small>
-            <p>Se confirma al registrar la solicitud.</p>
-          </div>
-          <strong>
-            {money(
-              selected.reduce((sum, p) => sum + p.precio * quantities[p.id], 0),
-            )}
-          </strong>
-        </div>
-
-        <div className="form-footer">
-          <p className="muted">
-            <span aria-hidden="true">◇</span> Registrar un pedido no descuenta
-            stock ni confirma una compra.
-          </p>
-          <button
-            className="button button-primary button-submit"
-            disabled={pending || !products || !selected.length}
-          >
-            <span>{pending ? "Registrando…" : "Registrar pedido"}</span>
-            <span className="button-arrow" aria-hidden="true">
-              →
-            </span>
-          </button>
-        </div>
-      </form>
     </section>
   );
 }
+
+const SECTIONS = [
+  ["/catalogo", "Catálogo", "Productos con precio y stock de referencia."],
+  ["/nuevo", "Nuevo pedido", "Cantidades por producto y total estimado antes de registrar."],
+  ["/pedidos", "Mis pedidos", "Comprobante de cada pedido, con sus líneas y total."],
+  ["/ventas-en-vivo", "Ventas en vivo", "Acumulados del día por producto y alertas, cada 3 s."],
+] as const;
 
 export default function App({ auth }: { auth: AuthClient }) {
   const [user, setUser] = useState(auth.user()),
@@ -420,193 +328,94 @@ export default function App({ auth }: { auth: AuthClient }) {
       <Session value={user}>
         <ApiContext value={api}>
           {auth.mode === "local" && (
-            <div className="dev-notice">
-              <span className="dev-pulse" aria-hidden="true" />
-              <span>Entorno local de demostración</span>
-              <i aria-hidden="true" />
-              <span>JWT de prueba</span>
-              <i aria-hidden="true" />
-              <span>Emisor de pruebas; sin identidad Microsoft</span>
-            </div>
+            <p className="dev-notice" role="note">
+              Modo local · JWT de prueba, sin Microsoft Entra
+            </p>
           )}
 
           <header className="site-header">
-            <div className="header-shell">
+            <div className="header-row">
               <Link className="brand" to="/" aria-label="Pedidos360, inicio">
-                <span className="brand-mark" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
+                <BrandMark />
                 <span className="brand-word">
                   pedidos<span>360</span>
                 </span>
               </Link>
 
-              <nav aria-label="Principal">
-                <NavLink to="/catalogo">
-                  <span>Catálogo</span>
-                </NavLink>
-                <NavLink to="/pedidos">
-                  <span>Mis pedidos</span>
-                </NavLink>
-                <NavLink to="/ventas-en-vivo">
-                  <span>Ventas en vivo</span>
-                </NavLink>
-                {user && <NavLink to="/sesion"><span>Mi sesión</span></NavLink>}
+              <nav aria-label="Principal" className="nav">
+                <NavLink to="/catalogo">Catálogo</NavLink>
+                <NavLink to="/pedidos">Mis pedidos</NavLink>
+                <NavLink to="/ventas-en-vivo">Ventas en vivo</NavLink>
+                {user && <NavLink to="/sesion">Mi sesión</NavLink>}
               </nav>
 
               <div className="account">
-                {user && (
-                  <span className="account-name">
-                    <i aria-hidden="true" />
-                    {user}
-                  </span>
-                )}
+                {user && <span className="account-name">{user}</span>}
                 <button
-                  className="text-button"
+                  className="button button-small"
                   disabled={auth.mode === "unconfigured"}
                   onClick={() => session(user ? "logout" : "login")}
                 >
-                  <span>
-                    {user
-                      ? "Cerrar sesión"
-                      : auth.mode === "local"
-                        ? "Iniciar sesión local"
-                        : "Iniciar sesión"}
-                  </span>
-                  <span aria-hidden="true">{user ? "↗" : "→"}</span>
+                  {user
+                    ? "Cerrar sesión"
+                    : auth.mode === "local"
+                      ? "Iniciar sesión local"
+                      : "Iniciar sesión"}
                 </button>
               </div>
             </div>
           </header>
 
           <main>
-            <ErrorMessage message={error} />
+            <Problem message={error} />
             <Routes>
               <Route
                 path="/"
                 element={
-                  <section className="hero">
-                    <div className="hero-aura" aria-hidden="true" />
-                    <div className="hero-grid" aria-hidden="true" />
-
-                    <div className="hero-copy">
-                      <p className="eyebrow">
-                        <span>00</span> SIMPLE, DE PRINCIPIO A FIN
+                  <section className="page home">
+                    <div className="home-intro">
+                      <h1>Registra y sigue tus pedidos.</h1>
+                      <p className="lead">
+                        Consulta el catálogo, registra pedidos con varios productos y revisa el
+                        comprobante de cada uno. Las ventas del día se actualizan en vivo.
                       </p>
-                      <h1>
-                        Tus pedidos.
-                        <br />
-                        <span>Todo más claro.</span>
-                      </h1>
-                      <p className="hero-lead">
-                        Explora productos, registra tu solicitud y consulta cada
-                        detalle en un solo lugar.
-                      </p>
-
-                      <div className="hero-actions">
+                      <div className="actions">
                         {user ? (
-                          <Link
-                            className="button button-primary button-hero"
-                            to="/catalogo"
-                          >
-                            <span>Explorar catálogo</span>
-                            <span className="button-arrow" aria-hidden="true">
-                              ↗
-                            </span>
+                          <Link className="button button-primary" to="/catalogo">
+                            Ver catálogo
                           </Link>
                         ) : (
                           <button
-                            className="button button-primary button-hero"
+                            className="button button-primary"
                             disabled={auth.mode === "unconfigured"}
                             onClick={() => session("login")}
                           >
-                            <span>
-                              {auth.mode === "local"
-                                ? "Entrar a la demostración"
-                                : "Iniciar sesión"}
-                            </span>
-                            <span className="button-arrow" aria-hidden="true">
-                              →
-                            </span>
+                            {auth.mode === "local"
+                              ? "Entrar a la demostración"
+                              : "Iniciar sesión con Microsoft"}
                           </button>
                         )}
-                        <span className="hero-caption">
-                          Una interfaz mínima.
-                          <br />
-                          Una experiencia precisa.
-                        </span>
+                        {!user && auth.mode === "entra" && (
+                          <span className="hint">Usa tu cuenta institucional.</span>
+                        )}
                       </div>
 
                       {auth.mode === "unconfigured" && (
-                        <p role="status" className="config-status">
+                        <p role="status" className="notice notice-warn">
                           La configuración de identidad aún no está disponible
                           para esta compilación.
                         </p>
                       )}
                     </div>
 
-                    <aside className="hero-visual" aria-hidden="true">
-                      <div className="visual-window">
-                        <div className="visual-topbar">
-                          <span>PEDIDOS360 / LIVE</span>
-                          <span className="visual-dots">
-                            <i />
-                            <i />
-                            <i />
-                          </span>
-                        </div>
-
-                        <div className="visual-stage">
-                          <div className="visual-ring ring-one" />
-                          <div className="visual-ring ring-two" />
-                          <div className="visual-core">
-                            <span>360°</span>
-                            <small>VISIBILIDAD</small>
-                          </div>
-                          <div className="floating-card card-a">
-                            <small>01 / EXPLORA</small>
-                            <strong>Catálogo</strong>
-                            <span>→</span>
-                          </div>
-                          <div className="floating-card card-b">
-                            <small>02 / REGISTRA</small>
-                            <strong>Solicitud</strong>
-                            <span>＋</span>
-                          </div>
-                          <div className="floating-card card-c">
-                            <small>03 / CONSULTA</small>
-                            <strong>Historial</strong>
-                            <span>✓</span>
-                          </div>
-                        </div>
-
-                        <div className="visual-footer">
-                          <span>
-                            <i /> Sistema disponible
-                          </span>
-                          <span>P360 — 2026</span>
-                        </div>
-                      </div>
-                    </aside>
-
-                    <div className="hero-note">
-                      <span>
-                        <b>01</b>
-                        <small>Explora</small>
-                      </span>
-                      <span>
-                        <b>02</b>
-                        <small>Registra</small>
-                      </span>
-                      <span>
-                        <b>03</b>
-                        <small>Consulta</small>
-                      </span>
-                      <span className="hero-note-line" aria-hidden="true" />
-                      <span className="hero-note-tag">FLUJO / PEDIDOS360</span>
-                    </div>
+                    <ul className="home-index" aria-label="Secciones">
+                      {SECTIONS.map(([path, title, text]) => (
+                        <li key={path}>
+                          {user ? <Link to={path}>{title}</Link> : <span className="home-index-title">{title}</span>}
+                          <span>{text}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </section>
                 }
               />
@@ -643,17 +452,8 @@ export default function App({ auth }: { auth: AuthClient }) {
           </main>
 
           <footer className="site-footer">
-            <div className="footer-brand">
-              <span className="brand-mark brand-mark-small" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-              <strong>Pedidos360</strong>
-            </div>
-            <span className="footer-line" aria-hidden="true" />
-            <span>Solicitudes claras, de principio a fin.</span>
-            <small>INTERFAZ / 2026</small>
+            <span className="footer-brand">Pedidos360</span>
+            <span>Un pedido registra una solicitud: no incluye pago ni reserva de stock.</span>
           </footer>
         </ApiContext>
       </Session>

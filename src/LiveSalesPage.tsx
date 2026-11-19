@@ -1,111 +1,132 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { createApi, LiveSales } from './api'
-import { isEmpty, LIVE_SALES_INTERVAL_MS, LIVE_SALES_PATH, REASONS, startPolling, totalsByCurrency } from './liveSales'
+import { ago, money, shortId, time, units } from './format'
+import { isEmpty, isFatal, LIVE_SALES_INTERVAL_MS, LIVE_SALES_PATH, REASONS, startPolling, totalsByCurrency } from './liveSales'
+import { Empty, Loading, PageHead, Problem } from './ui'
 
-const money = (value: number, currency: string) =>
-  new Intl.NumberFormat('es-CL', { style: 'currency', currency }).format(value)
-const time = (value: string | Date) => new Date(value).toLocaleTimeString('es-CL')
+const REASON_DETAIL: Record<string, string> = {
+  ALTO_VALOR: 'el total alcanza el umbral de alto valor',
+  MUCHAS_LINEAS: 'el pedido tiene más de diez líneas',
+}
 const message = (error: unknown) => error instanceof Error ? error.message : 'No fue posible consultar las ventas en vivo.'
 
-/** Presentation only (no effects): reuses the existing visual classes of the orders pages. */
-export function LiveSalesView({ sales, error, updatedAt }: { sales?: LiveSales; error?: string; updatedAt?: Date }) {
-  return <section className="page page-orders">
-    <div className="section-title">
-      <div className="section-heading">
-        <p className="eyebrow"><span>05</span> EN CUASI TIEMPO REAL</p>
-        <h1>Ventas en vivo</h1>
-        <p className="section-lead">Acumulados del día por producto y moneda, y pedidos que requieren atención.</p>
-      </div>
-      <Link className="button button-primary" to="/nuevo">
-        <span>Nuevo pedido</span>
-        <span className="button-arrow" aria-hidden="true">＋</span>
-      </Link>
+type Props = { sales?: LiveSales; error?: string; reconnecting?: boolean; updatedAt?: Date; now?: Date }
+
+/** Presentation only (no effects): an operations board fed by GET /ventas/en-vivo. */
+export function LiveSalesView({ sales, error, reconnecting = false, updatedAt, now = new Date() }: Props) {
+  const seconds = LIVE_SALES_INTERVAL_MS / 1000
+  const state = error ? 'stopped' : reconnecting ? 'reconnecting' : updatedAt ? 'live' : 'connecting'
+  const stateText = {
+    stopped: 'Detenido',
+    reconnecting: 'Reconectando' + (updatedAt ? ` · último dato ${ago(updatedAt, now)}` : ''),
+    live: `En vivo · actualizado ${updatedAt ? ago(updatedAt, now) : ''}`,
+    connecting: 'Conectando',
+  }[state]
+  const totals = sales ? totalsByCurrency(sales.productos) : []
+
+  return <section className="page">
+    <PageHead title="Ventas en vivo" lead="Acumulados del día por producto y alertas, calculados desde Kafka."
+      action={<Link className="button" to="/nuevo">Nuevo pedido</Link>} />
+
+    <div className="live-bar">
+      <span role="status" className={'live-state live-' + state}><i className="live-dot" aria-hidden="true" />{stateText}</span>
+      <span className="meta">Día UTC <span className="mono">{sales?.fecha ?? '—'}</span></span>
+      <span className="meta">Consulta cada {seconds} s</span>
+      {sales?.ultimaActualizacion && <span className="meta">Último evento <span className="mono">{time(sales.ultimaActualizacion)}</span></span>}
     </div>
 
-    <div className="section-rule">
-      <p className="muted">
-        Día UTC {sales?.fecha ?? '—'} · Se actualiza cada {LIVE_SALES_INTERVAL_MS / 1000} s mientras esta vista está abierta.
-        Importes solicitados; no representan pagos.
-      </p>
-      <span className="rule-label">PEDIDOS360 / STREAMING</span>
-    </div>
+    {reconnecting && <div className="notice notice-warn" role="status">
+      <p>El servicio de ventas no responde. Se reintenta cada {seconds} s{sales ? '; se muestran los últimos datos recibidos.' : '.'}</p>
+    </div>}
+    <Problem message={error ?? ''} />
+    {!sales && !error && !reconnecting && <Loading>Consultando ventas en vivo…</Loading>}
 
-    {error && <p role="alert" className="error"><span className="error-mark" aria-hidden="true">!</span><span>{error}</span></p>}
-    {updatedAt && <p role="status" className="config-status">
-      Última actualización: {time(updatedAt)}
-      {sales?.ultimaActualizacion ? ` · último evento procesado: ${time(sales.ultimaActualizacion)}` : ''}
-    </p>}
-    {!sales && !error && <p role="status" className="loading-state"><span className="loading-dot" />Consultando ventas en vivo…</p>}
+    {isEmpty(sales) && <Empty title={`Aún no hay pedidos en el día UTC ${sales!.fecha}.`}
+      action={<Link className="button button-primary" to="/nuevo">Registrar un pedido</Link>}>
+      Los pedidos nuevos aparecen aquí unos segundos después de registrarse.
+    </Empty>}
 
-    {isEmpty(sales) && <div className="empty">
-      <div className="empty-visual" aria-hidden="true"><span>~</span></div>
-      <div>
-        <p className="eyebrow">SIN VENTAS HOY</p>
-        <h2>Aún no hay pedidos en el día UTC</h2>
-        <p>Los pedidos nuevos aparecen aquí pocos segundos después de registrarse.</p>
-        <Link to="/catalogo">Ver catálogo <span aria-hidden="true">→</span></Link>
+    {sales && sales.productos.length > 0 && <>
+      <div className="kpis">
+        {totals.map(total => <div className="kpi" key={total.moneda}>
+          <span className="kpi-label">Total del día · {total.moneda}</span>
+          <strong className="kpi-value amount">{money(total.importe, total.moneda)}</strong>
+          <span className="kpi-sub">{units(total.unidades)} unidades</span>
+        </div>)}
+        <div className="kpi">
+          <span className="kpi-label">Productos con ventas</span>
+          <strong className="kpi-value amount">{sales.productos.length}</strong>
+          <span className="kpi-sub">en el día UTC</span>
+        </div>
+        <div className="kpi">
+          <span className="kpi-label">Alertas recientes</span>
+          <strong className="kpi-value amount">{sales.alertas.length}</strong>
+          <span className="kpi-sub">alto valor o más de diez líneas</span>
+        </div>
       </div>
-    </div>}
 
-    {sales && sales.productos.length > 0 && <div className="order-list">
-      {totalsByCurrency(sales.productos).map(total => <article className="order" key={'total-' + total.moneda}>
-        <div className="order-accent" aria-hidden="true" />
-        <div className="order-header">
-          <div><small className="order-code">TOTAL DEL DÍA / {total.moneda}</small><h2>{money(total.importe, total.moneda)}</h2></div>
-          <span className="badge badge-success"><i aria-hidden="true" />{total.unidades} unidades</span>
-        </div>
-      </article>)}
-      {sales.productos.map(product => <article className="order" key={product.productoId + product.moneda}>
-        <div className="order-accent" aria-hidden="true" />
-        <div className="order-header">
-          <div><small className="order-code">PRODUCTO / {product.moneda}</small><h2>{product.nombre}</h2></div>
-          <span className="badge badge-muted"><i aria-hidden="true" />Versión {product.version}</span>
-        </div>
-        <div className="order-body">
-          <p className="order-label">Acumulado del día</p>
-          <ul>
-            <li><span>Unidades vendidas</span><strong>{product.unidades}</strong></li>
-            <li><span>Pedidos que lo incluyen</span><strong>{product.pedidos}</strong></li>
-          </ul>
-        </div>
-        <div className="order-total">
-          <span><small>Importe solicitado</small><span>Actualizado {time(product.actualizadoEn)}</span></span>
-          <strong>{money(product.importe, product.moneda)}</strong>
-        </div>
-      </article>)}
-    </div>}
+      <h2 className="section-heading">Por producto</h2>
+      <table className="ledger ledger-live">
+        <thead><tr>
+          <th scope="col">Producto</th><th scope="col" className="num">Unidades</th><th scope="col" className="num">Pedidos</th>
+          <th scope="col" className="num">Importe</th><th scope="col" className="num">Versión</th><th scope="col" className="num">Actualizado</th>
+        </tr></thead>
+        <tbody>
+          {sales.productos.map(product => <tr key={product.productoId + product.moneda}>
+            <th scope="row" className="cell-title">{product.nombre}<span className="sub">{product.moneda}</span></th>
+            <td className="num" data-label="Unidades">{units(product.unidades)}</td>
+            <td className="num" data-label="Pedidos">{units(product.pedidos)}</td>
+            <td className="num amount" data-label="Importe">{money(product.importe, product.moneda)}</td>
+            <td className="num mono" data-label="Versión">v{product.version}</td>
+            <td className="num mono" data-label="Actualizado">{time(product.actualizadoEn)}</td>
+          </tr>)}
+        </tbody>
+      </table>
+    </>}
 
     {sales && sales.alertas.length > 0 && <>
-      <div className="section-rule">
-        <p className="muted">Alertas recientes: pedidos de alto valor o con más de diez líneas.</p>
-        <span className="rule-label">ALERTAS / {sales.alertas.length}</span>
-      </div>
-      <div className="order-list">
-        {sales.alertas.map(alert => <article className="order" key={alert.pedidoId}>
-          <div className="order-accent" aria-hidden="true" />
-          <div className="order-header">
-            <div><small className="order-code">PEDIDO / {alert.pedidoId.slice(0, 8).toUpperCase()}</small><h2>{time(alert.ocurridoEn)}</h2></div>
-            <span className="badge badge-success"><i aria-hidden="true" />{alert.motivos.map(m => REASONS[m] ?? m).join(' · ')}</span>
-          </div>
-          <div className="order-total">
-            <span><small>Total del pedido</small><span>{alert.lineas} {alert.lineas === 1 ? 'línea' : 'líneas'}</span></span>
-            <strong>{money(alert.total, alert.moneda)}</strong>
-          </div>
-        </article>)}
-      </div>
+      <h2 className="section-heading">Alertas</h2>
+      <table className="ledger ledger-alerts">
+        <thead><tr>
+          <th scope="col">Hora</th><th scope="col">Pedido</th><th scope="col">Motivo</th>
+          <th scope="col" className="num">Líneas</th><th scope="col" className="num">Total</th>
+        </tr></thead>
+        <tbody>
+          {sales.alertas.map(alert => <tr key={alert.pedidoId}>
+            <td className="mono" data-label="Hora">{time(alert.ocurridoEn)}</td>
+            <th scope="row" className="mono" data-label="Pedido">{shortId(alert.pedidoId)}</th>
+            <td data-label="Motivo">{alert.motivos.map(reason => <span className="reason" key={reason}>
+              <span className="tag tag-alert">{REASONS[reason] ?? reason}</span> {REASON_DETAIL[reason] ?? ''}
+            </span>)}</td>
+            <td className="num" data-label="Líneas">{alert.lineas}</td>
+            <td className="num amount" data-label="Total">{money(alert.total, alert.moneda)}</td>
+          </tr>)}
+        </tbody>
+      </table>
     </>}
+
+    {sales && !isEmpty(sales) && <p className="footnote">
+      Importes solicitados; no representan pagos. Las alertas se guardan en memoria del servicio y se reinician con él.
+    </p>}
   </section>
 }
 
-/** Protected view: polls GET /ventas/en-vivo every 3 s while mounted; keeps the last data on transient errors. */
+/** Protected view: polls GET /ventas/en-vivo every 3 s while mounted; keeps the last data while reconnecting. */
 export function LiveSalesPage({ api }: { api: ReturnType<typeof createApi> }) {
   const [sales, setSales] = useState<LiveSales>()
   const [error, setError] = useState('')
+  const [reconnecting, setReconnecting] = useState(false)
   const [updatedAt, setUpdatedAt] = useState<Date>()
+  const [now, setNow] = useState(() => new Date())
   useEffect(() => startPolling(() => api<LiveSales>(LIVE_SALES_PATH), result => {
-    if ('data' in result) { setSales(result.data); setError(''); setUpdatedAt(result.at) }
-    else setError(message(result.error))
+    if ('data' in result) { setSales(result.data); setError(''); setReconnecting(false); setUpdatedAt(result.at) }
+    else if (isFatal(result.error)) { setError(message(result.error)); setReconnecting(false) }
+    else setReconnecting(true)
   }), [api])
-  return <LiveSalesView sales={sales} error={error} updatedAt={updatedAt} />
+  useEffect(() => {
+    const clock = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(clock)
+  }, [])
+  return <LiveSalesView sales={sales} error={error} reconnecting={reconnecting} updatedAt={updatedAt} now={now} />
 }
