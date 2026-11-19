@@ -27,3 +27,8 @@ export function createApi(baseUrl: string, token: () => Promise<string>) {
     return payload as T
   }
 }
+
+/** GET /api/v1/ventas/en-vivo (backend contracts/live-sales-response-v1.schema.json). */
+export interface LiveProduct { productoId: string; nombre: string; moneda: string; unidades: number; pedidos: number; importe: number; version: number; actualizadoEn: string }
+export interface LiveAlert { pedidoId: string; motivos: ('ALTO_VALOR' | 'MUCHAS_LINEAS')[]; total: number; moneda: string; lineas: number; ocurridoEn: string; detectadaEn: string }
+export interface LiveSales { fecha: string; generadoEn: string; ultimaActualizacion: string | null; productos: LiveProduct[]; alertas: LiveAlert[] }

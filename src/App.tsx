@@ -18,6 +18,7 @@ import {
 import type { AuthClient } from "./auth";
 import { createApi, type Order, type Product } from "./api";
 import { SessionPage } from "./SessionPage";
+import { LiveSalesPage } from "./LiveSalesPage";
 import "./style.css";
 
 type Api = ReturnType<typeof createApi>;
@@ -449,6 +450,9 @@ export default function App({ auth }: { auth: AuthClient }) {
                 <NavLink to="/pedidos">
                   <span>Mis pedidos</span>
                 </NavLink>
+                <NavLink to="/ventas-en-vivo">
+                  <span>Ventas en vivo</span>
+                </NavLink>
                 {user && <NavLink to="/sesion"><span>Mi sesión</span></NavLink>}
               </nav>
 
@@ -632,6 +636,7 @@ export default function App({ auth }: { auth: AuthClient }) {
                 }
               />
               <Route path="/sesion" element={<Protected><SessionPage auth={auth} api={api} /></Protected>} />
+              <Route path="/ventas-en-vivo" element={<Protected><LiveSalesPage api={api} /></Protected>} />
               <Route path="/administracion" element={<Protected><Orders key="admin" administration /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
