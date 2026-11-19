@@ -1,8 +1,21 @@
 # Pedidos360 frontend
 
-## EP4 - frontend alojado en AWS
+## EP5/EP6 - vista "Ventas en vivo"
 
-Aplicación cloud: **https://7k2zyh0t0d.execute-api.us-east-1.amazonaws.com/app/** (requiere laboratorio encendido). La compilación se sirve desde la EC2 propia por BFF/API Gateway HTTPS y consume las rutas JWT de esa misma API. La prueba EP4 se realizó desde este origen cloud con Microsoft Entra real.
+Aplicación cloud: **https://az3h2vqgsi.execute-api.us-east-1.amazonaws.com/app/** (cuenta AWS Academy nueva; requiere el laboratorio encendido). La app de Entra conserva sus URI anteriores y suma esta nueva.
+
+- **Vista:** ruta protegida `/ventas-en-vivo` con enlace en la navegación. Consulta `GET /api/v1/ventas/en-vivo` (BFF → `sales-stream-service`, alimentado por Kafka) con el mismo bearer MSAL.
+  - **Sondeo:** cada 3 s, siempre después de terminar la consulta anterior. Se detiene al salir de la vista o ante 401/403; ante errores transitorios (por ejemplo, 502 con el servicio detenido) conserva los últimos datos y se recupera sola.
+  - **Contenido:** día UTC, total por moneda (sin mezclar monedas), acumulados por producto con su `version`, alertas recientes y hora de la última actualización.
+- **Estilos:** reutiliza solo clases existentes; `style.css` no cambia.
+- **Favicon:** `index.html` declara un ícono SVG embebido, porque detrás de API Gateway no existe `/favicon.ico` en la raíz del dominio.
+- **Pruebas:** 20 Vitest (sondeo con temporizadores falsos, vista con `react-dom/server`, ícono) y build de producción.
+
+Desde EP5 se desarrolla en Linux nativo (CachyOS). Las pruebas y el build de EP5 se ejecutaron con Node 26.13.1, aunque `.nvmrc` sigue en 24.20.0. Las menciones a WSL de las secciones siguientes son históricas. Compilación cloud para `/app/`, desde el backend hermano: `bash scripts/ep5-build.sh frontend`. Configura Entra y el endpoint de `config/aws-public.json` y deja el build en `~/.cache/pedidos360-ep5/frontend/dist`. Evidencias y decisiones: [backend `docs/evidence/ep5/`](https://github.com/chashmdai/pedidos360-backend/tree/main/docs/evidence/ep5) y [EP5_DECISIONES.md](https://github.com/chashmdai/pedidos360-backend/blob/main/docs/EP5_DECISIONES.md).
+
+## EP4 - frontend alojado en AWS (histórico)
+
+Aplicación cloud de EP4 (cuenta anterior, sin créditos): **https://7k2zyh0t0d.execute-api.us-east-1.amazonaws.com/app/**. La compilación se sirve desde la EC2 propia por BFF/API Gateway HTTPS y consume las rutas JWT de esa misma API. La prueba EP4 se realizó desde este origen cloud con Microsoft Entra real.
 
 Conservé el diseño y los flujos existentes. Añadí soporte de ruta base `/app/` en Vite, React Router y redirect/logout MSAL; localhost sigue usando `/`. La SPA Entra existente conserva sus scopes y sus URI locales y añade únicamente la URI cloud autorizada.
 
