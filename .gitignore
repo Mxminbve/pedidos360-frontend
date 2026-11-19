@@ -13,3 +13,19 @@ storage-state*.json
 auth-state*.json
 *.har
 *.trace.zip
+
+# EP5 review (2026-11-19): IDE, coverage, local outputs, keys and tokens
+.idea/
+coverage/
+*.local
+*.pem
+*.key
+*.p12
+*-token
+*.token
+.aws/
+credentials
+secrets.json
+tmp/
+.DS_Store
+*.swp
